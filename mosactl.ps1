@@ -27,4 +27,3 @@ if(-Not (Test-Path bin/Mosa.Tool.Mosactl.exe)) {
 }
 
 & bin/Mosa.Tool.Mosactl.exe $args
-exit $LASTEXITCODE

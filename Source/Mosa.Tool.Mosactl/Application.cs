@@ -86,7 +86,6 @@ namespace Mosa.Tool.Mosactl
 			if (args.Count == 0)
 			{
 				PrintHelp("usage");
-				Environment.Exit(1);
 				return;
 			}
 
@@ -96,26 +95,21 @@ namespace Mosa.Tool.Mosactl
 			switch (args[0])
 			{
 				case "tools":
-					if (!TaskTools(CheckType.force))
-						Environment.Exit(1);
+					TaskTools(CheckType.force);
 					break;
 				case "runtime":
-					if (!TaskRuntime(CheckType.force))
-						Environment.Exit(1);
+					TaskRuntime(CheckType.force);
 					break;
 				case "net":
 				case "dotnet":
-					if (!TaskCILBuild(CheckType.force, args))
-						Environment.Exit(1);
+					TaskCILBuild(CheckType.force, args);
 					break;
 				case "bin":
 				case "binary":
-					if (!TaskBinaryBuild(CheckType.force, args))
-						Environment.Exit(1);
+					TaskBinaryBuild(CheckType.force, args);
 					break;
 				case "run":
-					if (!TaskRun(args))
-						Environment.Exit(1);
+					TaskRun(args);
 					break;
 				case "test":
 					if (!TaskTest(args))
@@ -124,15 +118,10 @@ namespace Mosa.Tool.Mosactl
 				case "debug":
 					TaskDebug(args);
 					break;
-				case "help":
-					PrintHelp("usage");
-					break;
 			}
 		}
 
-		private string OsName = "all";
-
-		private string[] OsNames = new string[] { "helloworld", "coolworld" };
+		private string OsName = "HelloWorld";
 
 		private void PrintHelp(string name)
 		{
@@ -142,16 +131,14 @@ namespace Mosa.Tool.Mosactl
 			}
 		}
 
-		public bool TaskCILBuild(CheckType ct, List<string> args)
+		public void TaskCILBuild(CheckType ct, List<string> args)
 		{
 			TaskRuntime(CheckType.changed);
 
 			if (!File.Exists(GetEnv(ExpandKernelBinPath(OsName) + ".exe")) || ct == CheckType.force)
 			{
-				if (!CallProcess(SourceDir, GetEnv("MOSA_MSBUILD"), ExpandKernelCsProjPath(OsName), "-verbosity:minimal"))
-					return false;
+				CallProcess(SourceDir, GetEnv("MOSA_MSBUILD"), ExpandKernelCsProjPath(OsName));
 			}
-			return true;
 		}
 
 		private bool CallMonoProcess(string workdir, string cmd, params string[] args)
@@ -173,47 +160,37 @@ namespace Mosa.Tool.Mosactl
 			var proc = Process.Start(start);
 			proc.WaitForExit();
 
-			if (proc.ExitCode > 0)
-			{
-				Console.WriteLine("Exit Code " + proc.ExitCode);
-			}
-
 			return proc.ExitCode == 0;
 		}
 
-		public bool TaskBinaryBuild(CheckType ct, List<string> args)
+		public void TaskBinaryBuild(CheckType ct, List<string> args)
 		{
-			if (!TaskTools(CheckType.changed))
-				return false;
-			if (!TaskCILBuild(CheckType.changed, args))
-				return false;
+			TaskTools(CheckType.changed);
+			TaskCILBuild(CheckType.changed, args);
 
 			if (!File.Exists(ExpandKernelBinPath(OsName) + ".bin") || ct == CheckType.force)
 			{
 				var compilerArgs = new List<string>() {
-					"-o",
-					ExpandKernelBinPath(OsName)+".bin",
-					"-a",
-					"x86",
-					"--mboot",
-					"v1",
-					"--map",
-					ExpandKernelBinPath(OsName)+".map",
-					"--debug-info",
-					ExpandKernelBinPath(OsName)+".debug",
-					"--base-address",
-					"0x00500000",
-					"mscorlib.dll",
-					"Mosa.Plug.Korlib.dll",
-					"Mosa.Plug.Korlib.x86.dll",
-					ExpandKernelBinPath(OsName)+".exe"
-				};
+				"-o",
+				ExpandKernelBinPath(OsName)+".bin",
+				"-a",
+				"x86",
+				"--mboot",
+				"v1",
+				"--map",
+				ExpandKernelBinPath(OsName)+".map",
+				"--debug-info",
+				ExpandKernelBinPath(OsName)+".debug",
+				"--base-address",
+				"0x00500000",
+				"mscorlib.dll",
+				"Mosa.Plug.Korlib.dll",
+				"Mosa.Plug.Korlib.x86.dll",
+				ExpandKernelBinPath(OsName)+".exe"
+			};
 
-				if (!CallMonoProcess(BinDir, "Mosa.Tool.Compiler.exe", compilerArgs.ToArray()))
-					return false;
+				CallMonoProcess(BinDir, "Mosa.Tool.Compiler.exe", compilerArgs.ToArray());
 			}
-
-			return true;
 		}
 
 		private class PlattformAppCall
@@ -254,49 +231,29 @@ namespace Mosa.Tool.Mosactl
 			TaskDiskBuild();
 		}
 
-		public bool TaskRun(List<string> args)
+		public void TaskRun(List<string> args)
 		{
 			var ct = args.Contains("--build") ? CheckType.force : CheckType.changed;
-			if (!TaskCILBuild(ct, args))
-				return false;
-			if (!TaskBinaryBuild(ct, args))
-				return false;
+			TaskCILBuild(ct, args);
+			TaskBinaryBuild(ct, args);
 
-			if (!CallQemu(false, null))
-				return false;
-
-			return true;
-		}
-
-		public bool TaskTestAll(List<string> args)
-		{
-			foreach (var osName in OsNames)
-				if (!CallProcess(BinDir, GetEnv("${MOSA_BIN}/Mosa.Tool.Mosactl.exe"), "test", osName))
-					return false;
-
-			return true;
+			CallQemu(false, null);
 		}
 
 		public bool TaskTest(List<string> args)
 		{
-			if (OsName == "all")
-				return TaskTestAll(args);
-
-			if (!TaskCILBuild(CheckType.changed, args))
-				return false;
-			if (!TaskBinaryBuild(CheckType.changed, args))
-				return false;
+			TaskCILBuild(CheckType.changed, args);
+			TaskBinaryBuild(CheckType.changed, args);
 
 			var testSuccess = false;
-			if (!CallQemu(true, (line, proc) =>
-			 {
-				 if (line == "<SELFTEST:PASSED>")
-				 {
-					 testSuccess = true;
-					 proc.Kill();
-				 }
-			 }))
-				return false;
+			CallQemu(true, (line, proc) =>
+			{
+				if (line == "<TEST:PASSED:Boot.Main>")
+				{
+					testSuccess = true;
+					proc.Kill();
+				}
+			});
 
 			if (testSuccess)
 			{
@@ -362,8 +319,7 @@ namespace Mosa.Tool.Mosactl
 					}
 					else
 					{
-						if (buf[0] != '\r')
-							sb.Append(buf[0]);
+						sb.Append(buf[0]);
 					}
 
 				}
@@ -384,11 +340,10 @@ namespace Mosa.Tool.Mosactl
 				th2.Start();
 			}
 
+
 			p.WaitForExit();
 
-			Console.WriteLine("Qemu exit code " + p.ExitCode);
-
-			return p.ExitCode == 0 || p.ExitCode == 137 || p.ExitCode == -1;
+			return true;
 		}
 
 		public void TaskDebug(List<string> args)
@@ -438,41 +393,29 @@ namespace Mosa.Tool.Mosactl
 			CallProcess(BinDir, "chmod", "+x", gdbqemu);
 		}
 
-		public bool TaskTools(CheckType ct)
+		public void TaskTools(CheckType ct)
 		{
 			var exists = File.Exists(GetEnv("${MOSA_BIN}/Mosa.Tool.Compiler.exe"));
 			if (!exists || ct == CheckType.force)
 			{
-				if (!CallMonoProcess(SourceDir, GetEnv("MOSA_NUGET"), "restore", "Mosa.sln"))
-					return false;
-				if (!CallProcess(SourceDir, GetEnv("MOSA_MSBUILD"), "Mosa.Tool.Compiler/Mosa.Tool.Compiler.csproj"))
-					return false;
-				if (!CallProcess(SourceDir, GetEnv("MOSA_MSBUILD"), "Mosa.Tool.GDBDebugger/Mosa.Tool.GDBDebugger.csproj"))
-					return false;
+				CallMonoProcess(SourceDir, GetEnv("MOSA_NUGET"), "restore", "Mosa.sln");
+				CallProcess(SourceDir, GetEnv("MOSA_MSBUILD"), "Mosa.Tool.Compiler/Mosa.Tool.Compiler.csproj");
+				CallProcess(SourceDir, GetEnv("MOSA_MSBUILD"), "Mosa.Tool.GDBDebugger/Mosa.Tool.GDBDebugger.csproj");
 			}
-
-			return true;
 		}
 
-		public bool TaskRuntime(CheckType ct)
+		public void TaskRuntime(CheckType ct)
 		{
 			var exists = File.Exists(GetEnv("${MOSA_BIN}/Mosa.Plug.Korlib.dll"));
 			if (!exists || ct == CheckType.force)
 			{
-				if (!CallProcess(SourceDir, GetEnv("MOSA_MSBUILD"), "Mosa.Runtime.x86/Mosa.Runtime.x86.csproj"))
-					return false;
-				if (!CallProcess(SourceDir, GetEnv("MOSA_MSBUILD"), "Mosa.Runtime.x64/Mosa.Runtime.x64.csproj"))
-					return false;
-				if (!CallProcess(SourceDir, GetEnv("MOSA_MSBUILD"), "Mosa.Korlib/Mosa.Korlib.csproj"))
-					return false;
-				if (!CallProcess(SourceDir, GetEnv("MOSA_MSBUILD"), "Mosa.Plug.Korlib/Mosa.Plug.Korlib.csproj"))
-					return false;
-				if (!CallProcess(SourceDir, GetEnv("MOSA_MSBUILD"), "Mosa.Plug.Korlib.x86/Mosa.Plug.Korlib.x86.csproj"))
-					return false;
-				if (!CallProcess(SourceDir, GetEnv("MOSA_MSBUILD"), "Mosa.Plug.Korlib.x64/Mosa.Plug.Korlib.x64.csproj"))
-					return false;
+				CallProcess(SourceDir, GetEnv("MOSA_MSBUILD"), "Mosa.Runtime.x86/Mosa.Runtime.x86.csproj");
+				CallProcess(SourceDir, GetEnv("MOSA_MSBUILD"), "Mosa.Runtime.x64/Mosa.Runtime.x64.csproj");
+				CallProcess(SourceDir, GetEnv("MOSA_MSBUILD"), "Mosa.Korlib/Mosa.Korlib.csproj");
+				CallProcess(SourceDir, GetEnv("MOSA_MSBUILD"), "Mosa.Plug.Korlib/Mosa.Plug.Korlib.csproj");
+				CallProcess(SourceDir, GetEnv("MOSA_MSBUILD"), "Mosa.Plug.Korlib.x86/Mosa.Plug.Korlib.x86.csproj");
+				CallProcess(SourceDir, GetEnv("MOSA_MSBUILD"), "Mosa.Plug.Korlib.x64/Mosa.Plug.Korlib.x64.csproj");
 			}
-			return true;
 		}
 
 		public enum CheckType
